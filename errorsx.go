@@ -2,126 +2,95 @@ package errorsx
 
 import (
 	"fmt"
-	"net/http"
 	"runtime"
 	"strings"
 )
 
-const (
-	errorXDefaultType = "default"
-	errorXHttpType    = "http"
-)
-
 type ErrorX interface {
 	error
+	fmt.Stringer
 
-	Wrap(err error) ErrorX
-	Skip(n int) ErrorX
+	Caller() string
+	unwrap() ErrorX
+}
+
+type errorX struct {
+	caller  string
+	err     error
+	message string
 }
 
 var _ ErrorX = (*errorX)(nil)
 
-type errorX struct {
-	eType string
-
-	caller string
-	skip   int
-
-	err error
-
-	message string
-
-	errorXHttp
-}
-
-type errorXHttp struct {
-	status int
-}
-
 func (e *errorX) Error() string {
-	logs := []string{e.message}
+	return stringify(e)
+}
 
-	if e.eType == errorXHttpType {
-		logs = append(logs, fmt.Sprintf("status: %d", e.status))
-	}
-
+func (e *errorX) String() string {
+	msg := e.message
 	if e.err != nil {
-		logs = append(logs, e.err.Error())
+		msg = msg + ": " + e.err.Error()
 	}
 
-	msg := strings.Join(logs, ": ")
-
-	return fmt.Sprintf("%s [%s]", msg, e.caller)
+	return msg
 }
 
-func (e *errorX) Wrap(err error) ErrorX {
-	e.err = err
-
-	return e
+func (e *errorX) Caller() string {
+	return e.caller
 }
 
-func (e *errorX) Skip(n int) ErrorX {
-	e.skip = n
-	e.setCaller(3)
-
-	return e
-}
-
-func AsErrorX(err error) *errorX {
-	if err == nil {
-		return nil
-	}
-	if e, ok := err.(*errorX); ok {
-		return e
-	}
-	return newf(err.Error()).(*errorX)
+func (e *errorX) unwrap() ErrorX {
+	return nil
 }
 
 func New(message string) ErrorX {
-	return newf(message)
+	return newf(nil, "%s", message)
 }
 
 func Newf(format string, args ...any) ErrorX {
-	return newf(format, args...)
+	return newf(nil, format, args...)
 }
 
-func NewHttp(status int, message string) ErrorX {
-	return newHttpf(status, message)
+func NewWithError(err error, message string) ErrorX {
+	return newf(err, "%s", message)
 }
 
-func NewHttpf(status int, format string, args ...any) ErrorX {
-	return newHttpf(status, format, args...)
+func NewWithErrorf(err error, format string, args ...any) ErrorX {
+	return newf(err, format, args...)
 }
 
-func newHttpf(status int, format string, args ...any) ErrorX {
+func newf(err error, format string, args ...any) ErrorX {
 	e := &errorX{
-		eType:   errorXHttpType,
+		err:     err,
 		message: fmt.Sprintf(format, args...),
-
-		errorXHttp: errorXHttp{
-			status: status,
-		},
+		caller:  getCaller(2),
 	}
-	e.setCaller(3)
 
 	return e
 }
 
-func newf(format string, args ...any) ErrorX {
-	e := &errorX{
-		eType:   errorXDefaultType,
-		message: fmt.Sprintf(format, args...),
+func stringify(e ErrorX) string {
+	ex := ErrorX(e)
+	msgs := make([]string, 1)
+	for {
+		if eu := ex.unwrap(); eu != nil {
+			msgs = append(msgs, ex.String())
+			ex = eu
+			continue
+		}
 
-		errorXHttp: errorXHttp{
-			status: http.StatusInternalServerError,
-		},
+		msg := ex.String()
+
+		msgs[0] = msg
+
+		msg = strings.Join(msgs, ": ")
+		msg = msg + " [" + ex.Caller() + "]"
+
+		return msg
 	}
-	e.setCaller(3)
-
-	return e
 }
 
-func (e *errorX) setCaller(skip int) {
-	pc, _, line, _ := runtime.Caller(skip + e.skip)
-	e.caller = fmt.Sprintf("%s:%d", runtime.FuncForPC(pc).Name(), line)
+func getCaller(skip int) string {
+	pc, _, line, _ := runtime.Caller(1 + skip)
+	return fmt.Sprintf("%s:%d", runtime.FuncForPC(pc).Name(), line)
 }

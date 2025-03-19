@@ -1,44 +1,13 @@
 package errorsx_test
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
 	"runtime"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/caioreix/errorsx"
+	"github.com/stretchr/testify/assert"
 )
-
-func TestErrorX_Error(t *testing.T) {
-	tt := []struct {
-		name string
-		err  errorsx.ErrorX
-		want string
-	}{
-		{
-			name: "without wrap",
-			err:  errorsx.New("foo"),
-			want: "foo",
-		},
-		{
-			name: "with wrap",
-			err:  errorsx.New("foo").Wrap(errors.New("bar")),
-			want: "foo: bar",
-		},
-	}
-	rx := callerRX("%s")
-
-	for _, tc := range tt {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := tc.err.Error()
-			assert.Regexp(t, fmt.Sprintf(rx, tc.want), got)
-		})
-	}
-}
 
 func TestErrorX_New(t *testing.T) {
 	t.Parallel()
@@ -63,30 +32,30 @@ func TestErrorX_Newf(t *testing.T) {
 	assert.Regexp(t, rx, got)
 }
 
-func TestErrorX_NewHttp(t *testing.T) {
+func TestErrorX_NewWithError(t *testing.T) {
 	t.Parallel()
 	var (
-		msg    = "foo"
-		status = http.StatusUnprocessableEntity
+		err = fmt.Errorf("fake error")
+		msg = "foo"
 	)
 
-	rx := callerRX(fmt.Sprintf("%s: status: %d", msg, status))
-	err := errorsx.NewHttp(status, msg)
-	got := err.Error()
+	rx := callerRX(fmt.Sprintf("%s: %s", msg, err.Error()))
+	errX := errorsx.NewWithError(err, msg)
+	got := errX.Error()
 	assert.Regexp(t, rx, got)
 }
 
-func TestErrorX_NewHttpf(t *testing.T) {
+func TestErrorX_NewWithErrorf(t *testing.T) {
 	t.Parallel()
 	var (
+		err    = fmt.Errorf("fake error")
 		format = "foo %s"
 		args   = []any{"bar"}
-		status = http.StatusUnprocessableEntity
 	)
 
-	rx := callerRX(fmt.Sprintf("%s: status: %d", fmt.Sprintf(format, args...), status))
-	err := errorsx.NewHttpf(status, format, args...)
-	got := err.Error()
+	rx := callerRX(fmt.Sprintf("%s: %s", fmt.Sprintf(format, args...), err.Error()))
+	errX := errorsx.NewWithErrorf(err, format, args...)
+	got := errX.Error()
 	assert.Regexp(t, rx, got)
 }
 
