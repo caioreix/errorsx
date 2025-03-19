@@ -3,6 +3,7 @@ package errorsx
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -11,7 +12,10 @@ type ErrorX interface {
 	fmt.Stringer
 
 	Caller() string
+	Response(fields ...string) map[string]any
+
 	unwrap() ErrorX
+	fields() map[string]any
 }
 
 type errorX struct {
@@ -35,12 +39,25 @@ func (e *errorX) String() string {
 	return msg
 }
 
+func (e *errorX) Response(fields ...string) map[string]any {
+	return mapify(e, fields)
+}
+
 func (e *errorX) Caller() string {
 	return e.caller
 }
 
 func (e *errorX) unwrap() ErrorX {
 	return nil
+}
+
+func (e *errorX) fields() map[string]any {
+	fields := map[string]any{"message": e.message}
+	if e.err != nil {
+		fields["error"] = e.err.Error()
+	}
+
+	return fields
 }
 
 func New(message string) ErrorX {
@@ -87,6 +104,33 @@ func stringify(e ErrorX) string {
 		msg = msg + " [" + ex.Caller() + "]"
 
 		return msg
+	}
+}
+
+func mapify(e ErrorX, fields []string) map[string]any {
+	ex := ErrorX(e)
+	f := make(map[string]any)
+	for {
+		if eu := ex.unwrap(); eu != nil {
+			mapCopy(f, ex.fields(), fields)
+			ex = eu
+			continue
+		}
+
+		mapCopy(f, ex.fields(), fields)
+		if len(fields) == 0 || slices.Contains(fields, "caller") {
+			f["caller"] = ex.Caller()
+		}
+
+		return f
+	}
+}
+
+func mapCopy(dst, src map[string]any, keys []string) {
+	for k, v := range src {
+		if len(keys) == 0 || slices.Contains(keys, k) {
+			dst[k] = v
+		}
 	}
 }
 

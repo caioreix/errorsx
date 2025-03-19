@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestErrorX_NewHttp(t *testing.T) {
+func TestHTTPErrorX_NewHttp(t *testing.T) {
 	t.Parallel()
 	var (
 		msg    = "foo"
@@ -22,7 +22,7 @@ func TestErrorX_NewHttp(t *testing.T) {
 	assert.Regexp(t, rx, got)
 }
 
-func TestErrorX_NewHttpf(t *testing.T) {
+func TestHTTPErrorX_NewHttpf(t *testing.T) {
 	t.Parallel()
 	var (
 		format = "foo %s"
@@ -36,7 +36,7 @@ func TestErrorX_NewHttpf(t *testing.T) {
 	assert.Regexp(t, rx, got)
 }
 
-func TestErrorX_NewHttpWithError(t *testing.T) {
+func TestHTTPErrorX_NewHttpWithError(t *testing.T) {
 	t.Parallel()
 	var (
 		err    = fmt.Errorf("fake error")
@@ -50,7 +50,7 @@ func TestErrorX_NewHttpWithError(t *testing.T) {
 	assert.Regexp(t, rx, got)
 }
 
-func TestErrorX_NewHttpWithErrorf(t *testing.T) {
+func TestHTTPErrorX_NewHttpWithErrorf(t *testing.T) {
 	t.Parallel()
 	var (
 		err    = fmt.Errorf("fake error")
@@ -63,4 +63,45 @@ func TestErrorX_NewHttpWithErrorf(t *testing.T) {
 	errX := errorsx.NewHttpWithErrorf(err, status, format, args...)
 	got := errX.Error()
 	assert.Regexp(t, rx, got)
+}
+
+func TestHTTPErrorX_Response(t *testing.T) {
+	t.Run("without filter", func(t *testing.T) {
+		t.Parallel()
+		var (
+			err    = fmt.Errorf("fake error")
+			msg    = "foo"
+			status = http.StatusUnprocessableEntity
+
+			want = map[string]any{
+				"message": msg,
+				"status":  status,
+				"error":   err.Error(),
+			}
+		)
+
+		errX := errorsx.NewHttpWithError(err, status, msg)
+		want["caller"] = errX.Caller()
+
+		got := errX.Response()
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("without filter", func(t *testing.T) {
+		t.Parallel()
+		var (
+			err    = fmt.Errorf("fake error")
+			msg    = "foo"
+			status = http.StatusUnprocessableEntity
+
+			want = map[string]any{
+				"message": msg,
+				"status":  status,
+			}
+		)
+
+		errX := errorsx.NewHttpWithError(err, status, msg)
+		got := errX.Response("message", "status")
+		assert.Equal(t, want, got)
+	})
 }

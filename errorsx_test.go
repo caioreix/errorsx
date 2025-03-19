@@ -59,6 +59,43 @@ func TestErrorX_NewWithErrorf(t *testing.T) {
 	assert.Regexp(t, rx, got)
 }
 
+func TestErrorX_Response(t *testing.T) {
+	t.Run("without filter", func(t *testing.T) {
+		t.Parallel()
+		var (
+			err = fmt.Errorf("fake error")
+			msg = "foo"
+
+			want = map[string]any{
+				"message": msg,
+				"error":   err.Error(),
+			}
+		)
+
+		errX := errorsx.NewWithError(err, msg)
+		want["caller"] = errX.Caller()
+
+		got := errX.Response()
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("without filter", func(t *testing.T) {
+		t.Parallel()
+		var (
+			err = fmt.Errorf("fake error")
+			msg = "foo"
+
+			want = map[string]any{
+				"message": msg,
+			}
+		)
+
+		errX := errorsx.NewWithError(err, msg)
+		got := errX.Response("message", "status")
+		assert.Equal(t, want, got)
+	})
+}
+
 func callerRX(msg string, skip ...int) string {
 	skipT := 0
 	for _, s := range skip {

@@ -18,8 +18,16 @@ func (e *httpErrorX) String() string {
 	return "status " + strconv.FormatInt(int64(e.status), 10)
 }
 
+func (e *httpErrorX) Response(fields ...string) map[string]any {
+	return mapify(e, fields)
+}
+
 func (e *httpErrorX) unwrap() ErrorX {
 	return e.ErrorX
+}
+
+func (e *httpErrorX) fields() map[string]any {
+	return map[string]any{"status": e.status}
 }
 
 func NewHttp(status int, message string) ErrorX {
