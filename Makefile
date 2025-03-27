@@ -1,0 +1,3 @@
+test:
+	@go test -race -cover -coverprofile=coverage.out -count=1 ./...
+	@go tool cover -func coverage.out

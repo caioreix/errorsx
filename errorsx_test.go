@@ -74,12 +74,13 @@ func TestErrorX_Response(t *testing.T) {
 
 		errX := errorsx.NewWithError(err, msg)
 		want["caller"] = errX.Caller()
+		want["stack"] = errX.Stack()
 
 		got := errX.Response()
 		assert.Equal(t, want, got)
 	})
 
-	t.Run("without filter", func(t *testing.T) {
+	t.Run("with filter", func(t *testing.T) {
 		t.Parallel()
 		var (
 			err = fmt.Errorf("fake error")
@@ -102,6 +103,6 @@ func callerRX(msg string, skip ...int) string {
 		skipT += s
 	}
 
-	pc, _, _, _ := runtime.Caller(skipT + 1)
-	return fmt.Sprintf(`^%s \[%s:\d+\]$`, msg, runtime.FuncForPC(pc).Name())
+	pc, file, _, _ := runtime.Caller(skipT + 1)
+	return fmt.Sprintf(`^%s \[%s %s:\d+\]$`, msg, runtime.FuncForPC(pc).Name(), file)
 }

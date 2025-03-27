@@ -82,12 +82,13 @@ func TestHTTPErrorX_Response(t *testing.T) {
 
 		errX := errorsx.NewHttpWithError(err, status, msg)
 		want["caller"] = errX.Caller()
+		want["stack"] = errX.Stack()
 
 		got := errX.Response()
 		assert.Equal(t, want, got)
 	})
 
-	t.Run("without filter", func(t *testing.T) {
+	t.Run("with filter", func(t *testing.T) {
 		t.Parallel()
 		var (
 			err    = fmt.Errorf("fake error")

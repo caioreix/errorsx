@@ -12,6 +12,7 @@ type ErrorX interface {
 	fmt.Stringer
 
 	Caller() string
+	Stack() Stack
 	Response(fields ...string) map[string]any
 
 	unwrap() ErrorX
@@ -19,6 +20,7 @@ type ErrorX interface {
 }
 
 type errorX struct {
+	stack   Stack
 	caller  string
 	err     error
 	message string
@@ -45,6 +47,10 @@ func (e *errorX) Response(fields ...string) map[string]any {
 
 func (e *errorX) Caller() string {
 	return e.caller
+}
+
+func (e *errorX) Stack() Stack {
+	return e.stack
 }
 
 func (e *errorX) unwrap() ErrorX {
@@ -81,6 +87,7 @@ func newf(err error, format string, args ...any) ErrorX {
 		err:     err,
 		message: fmt.Sprintf(format, args...),
 		caller:  getCaller(2),
+		stack:   getStack(4),
 	}
 
 	return e
@@ -122,6 +129,10 @@ func mapify(e ErrorX, fields []string) map[string]any {
 			f["caller"] = ex.Caller()
 		}
 
+		if len(fields) == 0 || slices.Contains(fields, "caller") {
+			f["stack"] = ex.Stack()
+		}
+
 		return f
 	}
 }
@@ -135,6 +146,6 @@ func mapCopy(dst, src map[string]any, keys []string) {
 }
 
 func getCaller(skip int) string {
-	pc, _, line, _ := runtime.Caller(1 + skip)
-	return fmt.Sprintf("%s:%d", runtime.FuncForPC(pc).Name(), line)
+	pc, file, line, _ := runtime.Caller(1 + skip)
+	return fmt.Sprintf("%s %s:%d", runtime.FuncForPC(pc).Name(), file, line)
 }
