@@ -163,7 +163,7 @@ func mapify(e ErrorX, fields []string) map[string]any {
 			f["caller"] = ex.Caller()
 		}
 
-		if len(fields) == 0 || slices.Contains(fields, "caller") {
+		if len(fields) == 0 || slices.Contains(fields, "stack") {
 			f["stack"] = ex.Stack()
 		}
 
