@@ -1,6 +1,7 @@
 package errorsx_test
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"testing"
@@ -59,7 +60,7 @@ func TestErrorX_NewWithErrorf(t *testing.T) {
 	assert.Regexp(t, rx, got)
 }
 
-func TestErrorX_Response(t *testing.T) {
+func TestErrorX_Fields(t *testing.T) {
 	t.Run("without filter", func(t *testing.T) {
 		t.Parallel()
 		var (
@@ -76,7 +77,7 @@ func TestErrorX_Response(t *testing.T) {
 		want["caller"] = errX.Caller()
 		want["stack"] = errX.Stack()
 
-		got := errX.Response()
+		got := errX.Fields()
 		assert.Equal(t, want, got)
 	})
 
@@ -92,9 +93,118 @@ func TestErrorX_Response(t *testing.T) {
 		)
 
 		errX := errorsx.NewWithError(err, msg)
-		got := errX.Response("message", "status")
+		got := errX.Fields("message", "status")
 		assert.Equal(t, want, got)
 	})
+}
+
+func TestErrorX_Wrap(t *testing.T) {
+	t.Parallel()
+
+	t.Run("wrap first error", func(t *testing.T) {
+		t.Parallel()
+		msg := "original error"
+		wrapErr := fmt.Errorf("wrapped error")
+
+		errX := errorsx.New(msg)
+		wrappedErrX := errX.Wrap(wrapErr)
+
+		expected := fmt.Sprintf("%s: %s", msg, wrapErr.Error())
+		rx := callerRX(expected)
+
+		got := wrappedErrX.Error()
+		assert.Regexp(t, rx, got)
+
+		resp := wrappedErrX.Fields()
+		assert.Contains(t, resp["error"].(string), wrapErr.Error())
+	})
+
+	t.Run("wrap multiple errors", func(t *testing.T) {
+		t.Parallel()
+		msg := "original error"
+		firstWrapErr := fmt.Errorf("first wrapped error")
+		secondWrapErr := fmt.Errorf("second wrapped error")
+
+		errX := errorsx.New(msg)
+		wrappedOnce := errX.Wrap(firstWrapErr)
+		wrappedTwice := wrappedOnce.Wrap(secondWrapErr)
+
+		got := wrappedTwice.Error()
+		assert.Contains(t, got, msg)
+		assert.Contains(t, got, firstWrapErr.Error())
+		assert.Contains(t, got, secondWrapErr.Error())
+
+		resp := wrappedTwice.Fields()
+		assert.Contains(t, resp["error"].(string), firstWrapErr.Error())
+		assert.Contains(t, resp["error"].(string), secondWrapErr.Error())
+	})
+
+	t.Run("wrap nil error", func(t *testing.T) {
+		t.Parallel()
+		msg := "original error"
+
+		errX := errorsx.New(msg)
+		wrappedErrX := errX.Wrap(nil)
+
+		got := wrappedErrX.Error()
+		assert.Contains(t, got, msg)
+
+		resp := wrappedErrX.Fields()
+		assert.Equal(t, msg, resp["message"])
+	})
+}
+
+func TestErrorX_Unwrap(t *testing.T) {
+	t.Parallel()
+
+	tt := []struct {
+		name     string
+		setupErr func() (errorsx.ErrorX, error)
+		wantErr  error
+	}{
+		{
+			name: "unwrap with wrapped error",
+			setupErr: func() (errorsx.ErrorX, error) {
+				wrappedErr := fmt.Errorf("wrapped error")
+				return errorsx.NewWithError(wrappedErr, "parent error"), wrappedErr
+			},
+			wantErr: fmt.Errorf("wrapped error"),
+		},
+		{
+			name: "unwrap with nil error",
+			setupErr: func() (errorsx.ErrorX, error) {
+				return errorsx.New("error without wrapped error"), nil
+			},
+			wantErr: nil,
+		},
+		{
+			name: "unwrap with multiple errors",
+			setupErr: func() (errorsx.ErrorX, error) {
+				originalErr := fmt.Errorf("original error")
+				errX := errorsx.NewWithError(originalErr, "parent error")
+				additionalErr := fmt.Errorf("additional error")
+				errX = errX.Wrap(additionalErr)
+				return errX, errors.Join(originalErr, additionalErr)
+			},
+			wantErr: errors.Join(fmt.Errorf("original error"), fmt.Errorf("additional error")),
+		},
+	}
+
+	for _, tc := range tt {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			errX, wantErr := tc.setupErr()
+
+			gotErr := errX.Unwrap()
+
+			if wantErr == nil {
+				assert.Nil(t, gotErr)
+			} else {
+				assert.Equal(t, wantErr.Error(), gotErr.Error())
+			}
+		})
+	}
 }
 
 func callerRX(msg string, skip ...int) string {

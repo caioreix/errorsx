@@ -1,20 +1,26 @@
 package errorsx
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/go-playground/validator/v10"
 )
 
 type ErrorX interface {
 	error
-	fmt.Stringer
 
 	Caller() string
 	Stack() Stack
-	Response(fields ...string) map[string]any
+	Fields(fields ...string) map[string]any
+	Wrap(err error) ErrorX
+	Unwrap() error
 
+	// helpers
+	string() string
 	unwrap() ErrorX
 	fields() map[string]any
 }
@@ -32,7 +38,7 @@ func (e *errorX) Error() string {
 	return stringify(e)
 }
 
-func (e *errorX) String() string {
+func (e *errorX) string() string {
 	msg := e.message
 	if e.err != nil {
 		msg = msg + ": " + e.err.Error()
@@ -41,7 +47,24 @@ func (e *errorX) String() string {
 	return msg
 }
 
-func (e *errorX) Response(fields ...string) map[string]any {
+func (e errorX) Wrap(err error) ErrorX {
+	e.err = errors.Join(e.err, err)
+	switch et := err.(type) {
+	case validator.ValidationErrors:
+		return &validationErrorX{
+			ErrorX:      &e,
+			fieldErrors: et,
+		}
+	}
+
+	return &e
+}
+
+func (e *errorX) Unwrap() error {
+	return e.err
+}
+
+func (e *errorX) Fields(fields ...string) map[string]any {
 	return mapify(e, fields)
 }
 
@@ -53,7 +76,7 @@ func (e *errorX) Stack() Stack {
 	return e.stack
 }
 
-func (e *errorX) unwrap() ErrorX {
+func (e errorX) unwrap() ErrorX {
 	return nil
 }
 
@@ -83,14 +106,22 @@ func NewWithErrorf(err error, format string, args ...any) ErrorX {
 }
 
 func newf(err error, format string, args ...any) ErrorX {
-	e := &errorX{
+	newErrorX := &errorX{
 		err:     err,
 		message: fmt.Sprintf(format, args...),
 		caller:  getCaller(2),
 		stack:   getStack(4),
 	}
 
-	return e
+	switch e := err.(type) {
+	case validator.ValidationErrors:
+		return &validationErrorX{
+			ErrorX:      newErrorX,
+			fieldErrors: e,
+		}
+	default:
+		return newErrorX
+	}
 }
 
 func stringify(e ErrorX) string {
@@ -98,12 +129,15 @@ func stringify(e ErrorX) string {
 	msgs := make([]string, 1)
 	for {
 		if eu := ex.unwrap(); eu != nil {
-			msgs = append(msgs, ex.String())
+			msg := ex.string()
+			if msg != "" {
+				msgs = append(msgs, msg)
+			}
 			ex = eu
 			continue
 		}
 
-		msg := ex.String()
+		msg := ex.string()
 
 		msgs[0] = msg
 

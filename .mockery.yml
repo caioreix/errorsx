@@ -1,0 +1,15 @@
+with-expecter: true
+dir: "{{ .InterfaceDirRelative }}/mocks"
+mockname: "{{.InterfaceName}}"
+outpkg: "{{.PackageName}}mock"
+filename: "{{.InterfaceName}}_mock.go"
+all: true
+packages:
+  github.com/caioreix/errorsx:
+    config:
+      recursive: true
+
+# DEPRECATIONs in v3
+resolve-type-alias: false
+disable-version-string: true
+issue-845-fix: true
