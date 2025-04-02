@@ -1,127 +1,185 @@
 package errorsx
 
 import (
+	"errors"
 	"fmt"
-	"net/http"
 	"runtime"
+	"slices"
 	"strings"
-)
 
-const (
-	errorXDefaultType = "default"
-	errorXHttpType    = "http"
+	"github.com/go-playground/validator/v10"
 )
 
 type ErrorX interface {
 	error
 
+	Caller() string
+	Stack() Stack
+	Fields(fields ...string) map[string]any
 	Wrap(err error) ErrorX
-	Skip(n int) ErrorX
+	Unwrap() error
+
+	// helpers
+	string() string
+	unwrap() ErrorX
+	fields() map[string]any
+}
+
+type errorX struct {
+	stack   Stack
+	caller  string
+	err     error
+	message string
 }
 
 var _ ErrorX = (*errorX)(nil)
 
-type errorX struct {
-	eType string
-
-	caller string
-	skip   int
-
-	err error
-
-	message string
-
-	errorXHttp
-}
-
-type errorXHttp struct {
-	status int
-}
-
 func (e *errorX) Error() string {
-	logs := []string{e.message}
+	return stringify(e)
+}
 
-	if e.eType == errorXHttpType {
-		logs = append(logs, fmt.Sprintf("status: %d", e.status))
-	}
-
+func (e *errorX) string() string {
+	msg := e.message
 	if e.err != nil {
-		logs = append(logs, e.err.Error())
+		msg = msg + ": " + e.err.Error()
 	}
 
-	msg := strings.Join(logs, ": ")
-
-	return fmt.Sprintf("%s [%s]", msg, e.caller)
+	return msg
 }
 
-func (e *errorX) Wrap(err error) ErrorX {
-	e.err = err
-
-	return e
-}
-
-func (e *errorX) Skip(n int) ErrorX {
-	e.skip = n
-	e.setCaller(3)
-
-	return e
-}
-
-func AsErrorX(err error) *errorX {
-	if err == nil {
-		return nil
+func (e errorX) Wrap(err error) ErrorX {
+	e.err = errors.Join(e.err, err)
+	switch et := err.(type) {
+	case validator.ValidationErrors:
+		return &validationErrorX{
+			ErrorX:      &e,
+			fieldErrors: et,
+		}
 	}
-	if e, ok := err.(*errorX); ok {
-		return e
+
+	return &e
+}
+
+func (e *errorX) Unwrap() error {
+	return e.err
+}
+
+func (e *errorX) Fields(fields ...string) map[string]any {
+	return mapify(e, fields)
+}
+
+func (e *errorX) Caller() string {
+	return e.caller
+}
+
+func (e *errorX) Stack() Stack {
+	return e.stack
+}
+
+func (e errorX) unwrap() ErrorX {
+	return nil
+}
+
+func (e *errorX) fields() map[string]any {
+	fields := map[string]any{"message": e.message}
+	if e.err != nil {
+		fields["error"] = e.err.Error()
 	}
-	return newf(err.Error()).(*errorX)
+
+	return fields
 }
 
 func New(message string) ErrorX {
-	return newf(message)
+	return newf(nil, "%s", message)
 }
 
 func Newf(format string, args ...any) ErrorX {
-	return newf(format, args...)
+	return newf(nil, format, args...)
 }
 
-func NewHttp(status int, message string) ErrorX {
-	return newHttpf(status, message)
+func NewWithError(err error, message string) ErrorX {
+	return newf(err, "%s", message)
 }
 
-func NewHttpf(status int, format string, args ...any) ErrorX {
-	return newHttpf(status, format, args...)
+func NewWithErrorf(err error, format string, args ...any) ErrorX {
+	return newf(err, format, args...)
 }
 
-func newHttpf(status int, format string, args ...any) ErrorX {
-	e := &errorX{
-		eType:   errorXHttpType,
+func newf(err error, format string, args ...any) ErrorX {
+	newErrorX := &errorX{
+		err:     err,
 		message: fmt.Sprintf(format, args...),
-
-		errorXHttp: errorXHttp{
-			status: status,
-		},
+		caller:  getCaller(2),
+		stack:   getStack(4),
 	}
-	e.setCaller(3)
 
-	return e
+	switch e := err.(type) {
+	case validator.ValidationErrors:
+		return &validationErrorX{
+			ErrorX:      newErrorX,
+			fieldErrors: e,
+		}
+	default:
+		return newErrorX
+	}
 }
 
-func newf(format string, args ...any) ErrorX {
-	e := &errorX{
-		eType:   errorXDefaultType,
-		message: fmt.Sprintf(format, args...),
+func stringify(e ErrorX) string {
+	ex := ErrorX(e)
+	msgs := make([]string, 1)
+	for {
+		if eu := ex.unwrap(); eu != nil {
+			msg := ex.string()
+			if msg != "" {
+				msgs = append(msgs, msg)
+			}
+			ex = eu
+			continue
+		}
 
-		errorXHttp: errorXHttp{
-			status: http.StatusInternalServerError,
-		},
+		msg := ex.string()
+
+		msgs[0] = msg
+
+		msg = strings.Join(msgs, ": ")
+		msg = msg + " [" + ex.Caller() + "]"
+
+		return msg
 	}
-	e.setCaller(3)
-
-	return e
 }
 
-func (e *errorX) setCaller(skip int) {
-	pc, _, line, _ := runtime.Caller(skip + e.skip)
-	e.caller = fmt.Sprintf("%s:%d", runtime.FuncForPC(pc).Name(), line)
+func mapify(e ErrorX, fields []string) map[string]any {
+	ex := ErrorX(e)
+	f := make(map[string]any)
+	for {
+		if eu := ex.unwrap(); eu != nil {
+			mapCopy(f, ex.fields(), fields)
+			ex = eu
+			continue
+		}
+
+		mapCopy(f, ex.fields(), fields)
+		if len(fields) == 0 || slices.Contains(fields, "caller") {
+			f["caller"] = ex.Caller()
+		}
+
+		if len(fields) == 0 || slices.Contains(fields, "caller") {
+			f["stack"] = ex.Stack()
+		}
+
+		return f
+	}
+}
+
+func mapCopy(dst, src map[string]any, keys []string) {
+	for k, v := range src {
+		if len(keys) == 0 || slices.Contains(keys, k) {
+			dst[k] = v
+		}
+	}
+}
+
+func getCaller(skip int) string {
+	pc, file, line, _ := runtime.Caller(1 + skip)
+	return fmt.Sprintf("%s %s:%d", runtime.FuncForPC(pc).Name(), file, line)
 }
